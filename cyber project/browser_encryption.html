@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Browser-Based Encryption</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #ebb3c4 0%, #8fcdeb 50%, #6098e6 100%);
+      color: #3f2e3e;
+    }
+    .card { 
+      width: 100%;
+      max-width: 420px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1.5px solid #ffffff;
+      padding: 32px 28px; 
+      border-radius: 20px; 
+      box-shadow: 0 12px 32px rgba(219, 39, 119, 0.14);
+    }
+    .step-badge {
+      display: inline-block;
+      background: #fce7f3;
+      color: #db2777;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 5px 10px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+    }
+    h3 { margin: 0 0 8px 0; color: #2d1b2e; font-size: 20px; }
+    p.subtitle { font-size: 14px; line-height: 1.5; color: #6b5b6e; margin: 0 0 18px 0; }
+    input[type="password"], input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid #f3d1dc;
+      border-radius: 12px;
+      font-size: 14px;
+      outline: none;
+    }
+    input[type="password"]:focus, input[type="text"]:focus { border-color: #ec4899; }
+    .show-pwd-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      margin-top: 10px;
+      color: #6b5b6e;
+      cursor: pointer;
+    }
+    .show-pwd-label input { width: 15px; height: 15px; accent-color: #ec4899; margin: 0; }
+    .meter-bg { width: 100%; height: 6px; background: #f3e8ee; margin-top: 14px; border-radius: 999px; overflow: hidden; }
+    .meter-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.3s, background-color 0.3s; }
+    #strength-text { font-size: 12px; font-weight: 600; margin-top: 6px; color: #7c6a7e; }
+    button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 18px;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: white;
+      cursor: pointer;
+      background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+    }
+    .unlock-btn { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+    .ciphertext-preview {
+      font-family: monospace;
+      font-size: 11px;
+      background: #fdf2f8;
+      border: 1px dashed #f9a8d4;
+      padding: 10px 12px;
+      border-radius: 10px;
+      word-break: break-all;
+      margin-bottom: 14px;
+      color: #9d174d;
+      max-height: 64px;
+      overflow: hidden;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- STEP 1: SET PASSWORD SCREEN -->
+  <div id="setup-screen" class="card">
+    <span class="step-badge">Step 1 of 2 • Encrypt</span>
+    <h3>Protect Your Content</h3>
+    <p class="subtitle">A hidden webpage is stored inside this file. Set a password to scramble it locally with AES-256-GCM.</p>
+    
+    <input type="password" id="setup-pwd" placeholder="Create a strong password" required>
+    <label class="show-pwd-label"><input type="checkbox" id="toggle-setup-pwd"> Show password</label>
+
+    <div class="meter-bg"><div class="meter-fill" id="strength-bar"></div></div>
+    <div id="strength-text">Strength: Enter a password</div>
+
+    <button id="lock-btn">Lock & Encrypt Page</button>
+  </div>
+
+  <!-- STEP 2: LOCKED SCREEN -->
+  <div id="locked-screen" class="card hidden">
+    <span class="step-badge">Step 2 of 2 • Locked</span>
+    <h3>Document Locked</h3>
+    <p class="subtitle">The secret page is now encrypted into unreadable Base64 bytes. Enter your password to open it.</p>
+    
+    <div class="ciphertext-preview" id="cipher-display"></div>
+    
+    <input type="password" id="unlock-pwd" placeholder="Enter password to unlock" required>
+    <label class="show-pwd-label"><input type="checkbox" id="toggle-unlock-pwd"> Show password</label>
+
+    <button id="unlock-btn" class="unlock-btn">Unlock & Open Page</button>
+  </div>
+
+  <script>
+    let encryptedBase64 = "";
+
+    const secretContent = [
+      '<div style="font-family:sans-serif; max-width:520px; margin:80px auto; background:#ffffff; padding:36px; border-radius:20px; box-shadow:0 12px 32px rgba(16,185,129,0.15); border:2px solid #a7f3d0;">',
+      '<span style="background:#dcfce7; color:#15803d; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700;">AES-256-GCM VERIFIED</span>',
+      '<h1 style="color:#065f46; font-size:24px; margin:16px 0;">You are now in a password protected webpage</h1>',
+      '<p style="background:#f0fdf4; border-left:4px solid #10b981; padding:16px; border-radius:8px; line-height:1.6; color:#374151;">',
+      '<strong>System Message:</strong> Congratulations, you unlocked the highest level of military-grade AES-256 encryption just to read this sentence. Honestly, there are no nuclear launch codes here, just a reminder to drink some water and stay hydrated. Thank you.',
+      '</p>',
+      '<button onclick="location.reload()" style="background:#10b981; color:white; border:none; padding:12px 20px; border-radius:10px; font-weight:bold; cursor:pointer; margin-top:10px;">Lock Page Again</button>',
+      '</div>'
+    ].join('');
+
+    const setupPwd = document.getElementById('setup-pwd');
+    const unlockPwd = document.getElementById('unlock-pwd');
+    const strengthBar = document.getElementById('strength-bar');
+    const strengthText = document.getElementById('strength-text');
+
+    document.getElementById('toggle-setup-pwd').addEventListener('change', (e) => {
+      setupPwd.type = e.target.checked ? 'text' : 'password';
+    });
+
+    document.getElementById('toggle-unlock-pwd').addEventListener('change', (e) => {
+      unlockPwd.type = e.target.checked ? 'text' : 'password';
+    });
+
+    setupPwd.addEventListener('input', () => {
+      const val = setupPwd.value;
+      let score = 0;
+      if (val.length >= 8) score++;
+      if (val.length >= 12) score++;
+      if (/[A-Z]/.test(val) && /[a-z]/.test(val)) score++;
+      if (/[0-9]/.test(val)) score++;
+      if (/[^A-Za-z0-9]/.test(val)) score++;
+
+      const levels = [
+        { width: '0%',   color: '#e5e7eb', label: 'Enter a password' },
+        { width: '25%',  color: '#f43f5e', label: 'Very Weak' },
+        { width: '50%',  color: '#fb923c', label: 'Weak' },
+        { width: '75%',  color: '#facc15', label: 'Good' },
+        { width: '100%', color: '#10b981', label: 'Strong' }
+      ];
+
+      const index = val.length === 0 ? 0 : Math.min(score, 4);
+      strengthBar.style.width = levels[index].width;
+      strengthBar.style.backgroundColor = levels[index].color;
+      strengthText.textContent = 'Strength: ' + levels[index].label;
+    });
+
+    document.getElementById('lock-btn').addEventListener('click', async () => {
+      const password = setupPwd.value;
+      if (!password) {
+        alert('Please enter a password first.');
+        return;
+      }
+
+      const enc = new TextEncoder();
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+
+      const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+      const aesKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt']
+      );
+
+      const encryptedBuffer = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(secretContent));
+      const encryptedBytes = new Uint8Array(encryptedBuffer);
+
+      const packed = new Uint8Array(salt.length + iv.length + encryptedBytes.length);
+      packed.set(salt, 0);
+      packed.set(iv, 16);
+      packed.set(encryptedBytes, 28);
+
+      let binary = '';
+      for (let i = 0; i < packed.length; i++) binary += String.fromCharCode(packed[i]);
+      encryptedBase64 = btoa(binary);
+
+      document.getElementById('setup-screen').classList.add('hidden');
+      document.getElementById('locked-screen').classList.remove('hidden');
+      document.getElementById('cipher-display').textContent = "Ciphertext: " + encryptedBase64;
+    });
+
+    document.getElementById('unlock-btn').addEventListener('click', async () => {
+      const password = unlockPwd.value;
+      try {
+        const rawBytes = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+        const salt = rawBytes.slice(0, 16);
+        const iv = rawBytes.slice(16, 28);
+        const ciphertextWithTag = rawBytes.slice(28);
+
+        const enc = new TextEncoder();
+        const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+        const aesKey = await crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' },
+          keyMaterial,
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['decrypt']
+        );
+
+        const decryptedBuffer = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ciphertextWithTag);
+        const unlockedHtml = new TextDecoder().decode(decryptedBuffer);
+
+        document.open();
+        document.write('<div style="margin:0; min-height:100vh; padding-top:20px; background-image:url(\'backg.jpg\'); background-size:cover; background-position:center;">' + unlockedHtml + '</div>');
+        document.close();
+      } catch (err) {
+        alert('Wrong password! Decryption failed.');
+      }
+    });
+  </script>
+</body>
+</html>
